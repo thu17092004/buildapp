@@ -22,7 +22,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.19.0'
+          flutter-version: '3.24.0' # Đã nâng cấp phiên bản tại đây
 
       - name: Get Dependencies
         working-directory: ./frontend/mobile_web_flutter
@@ -30,7 +30,6 @@ jobs:
 
       - name: Build APK (Main App)
         working-directory: ./frontend/mobile_web_flutter
-        # Dưới đây là dòng quan trọng nhất đã được thêm -t lib/main_app.dart
         run: flutter build apk --release -t lib/main_app.dart --no-tree-shake-icons
 
       - name: Upload APK
