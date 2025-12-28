@@ -2,8 +2,8 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "truockhibuild" ] # Chạy tự động khi có code mới trên nhánh này
-  workflow_dispatch: # Cho phép bấm nút chạy thủ công
+    branches: [ "truockhibuild" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,21 +16,22 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17' # Flutter mới thường dùng Java 17
+          java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.19.0' # Phiên bản ổn định
+          flutter-version: '3.19.0'
 
       - name: Get Dependencies
         working-directory: ./frontend/mobile_web_flutter
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build APK (Main App)
         working-directory: ./frontend/mobile_web_flutter
-        run: flutter build apk --release --no-tree-shake-icons
+        # Dưới đây là dòng quan trọng nhất đã được thêm -t lib/main_app.dart
+        run: flutter build apk --release -t lib/main_app.dart --no-tree-shake-icons
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
