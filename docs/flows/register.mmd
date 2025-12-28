@@ -1,0 +1,63 @@
+%% Sơ đồ hoạt động: Đăng ký (Email / SĐT / Google)
+sequenceDiagram
+    participant U as Người dùng
+    participant F as Frontend (Mobile/Web)
+    participant A as Backend API
+    participant DB as CSDL
+    participant M as Email/SMS
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng ký bằng Email
+    U->>F: Nhập username, email, mật khẩu
+    F->>A: POST /api/v1/auth/register/email
+    A->>DB: Kiểm tra trùng email/username
+    alt Không trùng
+        A->>DB: Tạo Users (mật khẩu bcrypt)
+        A->>DB: Tạo AuthAccount(provider=email)
+        A->>A: make_confirm_token(ch=email)
+        A->>M: Gửi email xác nhận (confirm link)
+        A-->>F: 201 RegisterOut
+        U->>A: GET /api/v1/auth/confirm?token=...
+        A->>DB: Đánh dấu verified (phone_verified=True)
+        A-->>U: 200 OK
+    else Trùng
+        A-->>F: 409 Conflict
+    end
+    end
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng ký bằng SĐT
+    U->>F: Nhập username, phone, mật khẩu
+    F->>A: POST /api/v1/auth/register/phone
+    A->>A: phone_exists_really(phone)
+    alt SĐT hợp lệ và không trùng
+        A->>DB: Tạo Users (bcrypt)
+        A->>DB: Tạo AuthAccount(provider=sdt, phone_verified=False)
+        A->>A: make_confirm_token(ch=sdt)
+        A->>M: Gửi SMS xác nhận (confirm link)
+        A-->>F: 201 RegisterOut
+        U->>A: GET /api/v1/auth/confirm?token=...
+        A->>DB: phone_verified=True
+        A-->>U: 200 OK
+    else Sai SĐT hoặc trùng
+        A-->>F: 400 Bad Request hoặc 409 Conflict
+    end
+    end
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng ký bằng Google
+    U->>F: Chọn đăng ký Google
+    F->>A: POST /api/v1/auth/register/google {id_token}
+    A->>A: verify_google_id_token()
+    alt Token hợp lệ, không trùng
+        A->>DB: Tạo Users
+        A->>DB: Tạo AuthAccount(provider=gg)
+        opt Có email từ Google
+            A->>A: make_confirm_token(ch=email)
+            A->>M: Gửi email xác nhận
+        end
+        A-->>F: 201 RegisterOut
+    else Token sai hoặc trùng
+        A-->>F: 400 Bad Request hoặc 409 Conflict
+    end
+    end

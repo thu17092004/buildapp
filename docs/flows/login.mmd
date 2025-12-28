@@ -1,0 +1,73 @@
+%% Sơ đồ hoạt động: Đăng nhập (Email/Phone/Google)
+sequenceDiagram
+    participant U as Người dùng
+    participant F as Frontend (Mobile/Web)
+    participant A as Backend API
+    participant DB as CSDL
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng nhập bằng Email/Phone chung
+    U->>F: Nhập email hoặc phone + mật khẩu
+    F->>A: POST /api/v1/auth/login
+    A->>DB: Tìm Users theo email/phone
+    alt Không tồn tại
+        A-->>F: 404 Not Found
+    else Tồn tại
+        A->>A: verify_password(bcrypt)
+        alt Mật khẩu sai
+            A-->>F: 401 Unauthorized
+        else Mật khẩu đúng
+            A->>DB: Kiểm tra status == active
+            alt Bị khóa
+                A-->>F: 403 Forbidden
+            else Bình thường
+                A->>A: make_access_token(sub=access, uid, exp)
+                A-->>F: 200 TokenOut
+            end
+        end
+    end
+    end
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng nhập bằng Phone (ràng buộc xác nhận)
+    U->>F: Nhập phone + mật khẩu
+    F->>A: POST /api/v1/auth/login/phone
+    A->>DB: Tìm Users theo phone
+    alt Không tồn tại
+        A-->>F: 404 Not Found
+    else Tồn tại
+        A->>A: verify_password(bcrypt)
+        alt Mật khẩu sai
+            A-->>F: 401 Unauthorized
+        else Mật khẩu đúng
+            A->>DB: Lấy AuthAccount(provider=sdt)
+            alt Chưa xác nhận (phone_verified=False)
+                A-->>F: 403 SĐT chưa xác nhận
+            else Đã xác nhận
+                A->>A: make_access_token
+                A-->>F: 200 TokenOut
+            end
+        end
+    end
+    end
+
+    rect rgb(240,240,240)
+    Note over U,F: Đăng nhập Google (id_token hoặc access_token)
+    U->>F: Chọn đăng nhập Google
+    F->>A: POST /api/v1/auth/login/google {token}
+    alt id_token (JWT 3 phần)
+        A->>A: verify_google_id_token(token)
+    else access_token (bắt đầu ya29.)
+        A->>A: get_google_userinfo_from_access_token(token)
+    else Sai định dạng
+        A-->>F: 400 Bad Request
+    end
+    A->>DB: Tìm AuthAccount(provider=gg, provider_user_id=sub)
+    alt Chưa có (auto social signup)
+        A->>DB: Tạo Users (email nếu có)
+        A->>DB: Tạo AuthAccount(provider=gg)
+    else Có sẵn
+        A->>DB: Lấy Users theo acc.user_id
+    end
+    A->>A: make_access_token
+    A-->>F: 200 TokenOut
