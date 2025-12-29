@@ -122,28 +122,42 @@ def save_detection_result(
     guideline_text = llm.get("care_instructions")
 
     # 2) Lưu từng detection
-    for det in detections_list:
-        class_name_vi = det.get("class_name")
-        confidence = det.get("confidence")
-
-        bbox_json = _normalize_bbox(det)
-
-        disease_obj = ensure_disease(db, class_name_vi) if class_name_vi else None
-
+    if not detections_list:
+        # ✅ FIX: Nếu không có detection (unknown), tạo 1 bản ghi để lưu vào lịch sử
         det_row = Detection(
             img_id=img_row.img_id,
-            disease_id=disease_obj.disease_id if disease_obj else None,
-            confidence=confidence,
-
-            # ✅ NEW: lưu thẳng vào DB
+            disease_id=None,  # unknown/không xác định
+            confidence=None,
             description=description_text,
             treatment_guideline=guideline_text,
-
-            bbox=bbox_json,
+            bbox={"x1": None, "y1": None, "x2": None, "y2": None, "image_width": None, "image_height": None},
             review_status="pending",
             model_version=model_version,
         )
         db.add(det_row)
+    else:
+        for det in detections_list:
+            class_name_vi = det.get("class_name")
+            confidence = det.get("confidence")
+
+            bbox_json = _normalize_bbox(det)
+
+            disease_obj = ensure_disease(db, class_name_vi) if class_name_vi else None
+
+            det_row = Detection(
+                img_id=img_row.img_id,
+                disease_id=disease_obj.disease_id if disease_obj else None,
+                confidence=confidence,
+
+                # ✅ NEW: lưu thẳng vào DB
+                description=description_text,
+                treatment_guideline=guideline_text,
+
+                bbox=bbox_json,
+                review_status="pending",
+                model_version=model_version,
+            )
+            db.add(det_row)
 
     db.commit()
 

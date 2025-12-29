@@ -68,33 +68,56 @@ def get_detection_history_for_user(
     search: Optional[str] = None,
 ) -> DetectionHistoryList:
     """
-    FIX: Trả 1 record lịch sử cho mỗi Img (mỗi ảnh),
-    chọn detection "best" theo confidence cao nhất,
-    nếu confidence bằng nhau thì lấy created_at mới nhất.
+    FIX: Trả 1 record lịch sử cho mỗi Img (mỗi ảnh).
+    - Ưu tiên detection có confidence cao nhất
+    - Nếu tất cả detection đều có confidence = None, lấy detection mới nhất
     """
 
-    # Subquery: best_conf per img_id
-    sub_best = (
+    # Subquery: chọn 1 detection_id cho mỗi img_id
+    # Sắp xếp theo: confidence DESC NULLS LAST, detection_id DESC
+    # Lấy detection_id đầu tiên (confidence cao nhất hoặc mới nhất nếu confidence = None)
+    from sqlalchemy import distinct
+    from sqlalchemy.sql import func as sql_func
+    from sqlalchemy.orm import aliased
+
+    # Subquery: lấy detection_id tốt nhất cho mỗi img
+    # COALESCE để đưa NULL về -1 khi sắp xếp
+    sub_ranked = (
         db.query(
             Detection.img_id.label("img_id"),
-            func.max(Detection.confidence).label("best_conf"),
+            Detection.detection_id.label("det_id"),
+            sql_func.row_number()
+            .over(
+                partition_by=Detection.img_id,
+                order_by=[
+                    sql_func.coalesce(Detection.confidence, -1).desc(),
+                    Detection.detection_id.desc(),
+                ],
+            )
+            .label("rn"),
         )
         .join(Img, Detection.img_id == Img.img_id)
         .filter(Img.user_id == user_id)
-        .group_by(Detection.img_id)
         .subquery()
     )
 
-    # Query: Img + Detection(best) + Disease
+    # Chỉ lấy rn = 1
+    sub_best = (
+        db.query(
+            sub_ranked.c.img_id.label("img_id"),
+            sub_ranked.c.det_id.label("best_det_id"),
+        )
+        .filter(sub_ranked.c.rn == 1)
+        .subquery()
+    )
+
+    # Query chính
     q = (
         db.query(Detection, Img, Disease)
+        .join(sub_best, Detection.detection_id == sub_best.c.best_det_id)
         .join(Img, Detection.img_id == Img.img_id)
-        .join(sub_best, sub_best.c.img_id == Img.img_id)
         .outerjoin(Disease, Detection.disease_id == Disease.disease_id)
-        .filter(
-            Img.user_id == user_id,
-            Detection.confidence == sub_best.c.best_conf,
-        )
+        .filter(Img.user_id == user_id)
         .order_by(desc(Img.created_at))
     )
 
@@ -152,23 +175,45 @@ def get_detection_history_all_users(
     limit: int = 50,
     search: Optional[str] = None,
 ) -> DetectionHistoryList:
-    # Subquery best detection per img_id (all users)
-    sub_best = (
+    """
+    Lịch sử tất cả user (admin).
+    FIX: Hỗ trợ detection có confidence = None (unknown).
+    """
+    from sqlalchemy.sql import func as sql_func
+
+    # Subquery: chọn detection_id tốt nhất cho mỗi img (tất cả user)
+    sub_ranked = (
         db.query(
             Detection.img_id.label("img_id"),
-            func.max(Detection.confidence).label("best_conf"),
+            Detection.detection_id.label("det_id"),
+            sql_func.row_number()
+            .over(
+                partition_by=Detection.img_id,
+                order_by=[
+                    sql_func.coalesce(Detection.confidence, -1).desc(),
+                    Detection.detection_id.desc(),
+                ],
+            )
+            .label("rn"),
         )
-        .group_by(Detection.img_id)
+        .subquery()
+    )
+
+    sub_best = (
+        db.query(
+            sub_ranked.c.img_id.label("img_id"),
+            sub_ranked.c.det_id.label("best_det_id"),
+        )
+        .filter(sub_ranked.c.rn == 1)
         .subquery()
     )
 
     q = (
         db.query(Detection, Img, Disease, Users)
+        .join(sub_best, Detection.detection_id == sub_best.c.best_det_id)
         .join(Img, Detection.img_id == Img.img_id)
-        .join(sub_best, sub_best.c.img_id == Img.img_id)
         .outerjoin(Disease, Detection.disease_id == Disease.disease_id)
         .outerjoin(Users, Img.user_id == Users.user_id)
-        .filter(Detection.confidence == sub_best.c.best_conf)
         .order_by(desc(Img.created_at))
     )
 
